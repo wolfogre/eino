@@ -60,11 +60,6 @@ func mergeValues(vs []any) (any, error) {
 	}
 
 	if s, ok := vs[0].(streamReader); ok {
-		if s.getChunkType().Kind() != reflect.Map {
-			return nil, fmt.Errorf("(mergeValues | stream type)"+
-				" unsupported chunk type: %v", s.getChunkType())
-		}
-
 		ss := make([]streamReader, len(vs)-1)
 		for i := 0; i < len(ss); i++ {
 			s_, ok_ := vs[i+1].(streamReader)

@@ -47,25 +47,27 @@ func TestMergeValues(t *testing.T) {
 
 	// merge stream
 	ass := []any{
-		packStreamReader(schema.StreamReaderFromArray[map[int]bool]([]map[int]bool{{1: true}})),
-		packStreamReader(schema.StreamReaderFromArray[map[int]bool]([]map[int]bool{{2: true}})),
-		packStreamReader(schema.StreamReaderFromArray[map[int]bool]([]map[int]bool{{3: true}})),
+		packStreamReader(schema.StreamReaderFromArray[int]([]int{1, 6})),
+		packStreamReader(schema.StreamReaderFromArray[int]([]int{2, 5})),
+		packStreamReader(schema.StreamReaderFromArray[int]([]int{3, 4})),
 	}
 	isr, err := mergeValues(ass)
 	assert.Nil(t, err)
-	ret, ok := unpackStreamReader[map[int]bool](isr.(streamReader))
+	ret, ok := unpackStreamReader[int](isr.(streamReader))
 	defer ret.Close()
 
 	// check if merge ret is StreamReader
 	assert.True(t, ok)
 
-	for i := 1; i <= 3; i++ {
+	expect := map[int]bool{1: true, 2: true, 3: true, 4: true, 5: true, 6: true}
+	for i := 0; i < len(expect); i++ {
 		num, err := ret.Recv()
 		assert.Nil(t, err)
 
-		if num[i] != true {
+		if !expect[num] {
 			t.Fatalf("stream read num:%d is out of expect", i)
 		}
+		expect[num] = false // ensure the number isn't received again
 	}
 	_, err = ret.Recv()
 	if err != io.EOF {
