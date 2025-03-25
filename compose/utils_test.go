@@ -21,56 +21,112 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/cloudwego/eino/internal/generic"
 	"github.com/cloudwego/eino/schema"
 )
 
 func TestMergeValues(t *testing.T) {
-	// merge maps
-	m1 := map[int]int{1: 1, 2: 2, 3: 3, 4: 4}
-	m2 := map[int]int{5: 5, 6: 6, 7: 7, 8: 8}
-	m3 := map[int]int{9: 9, 10: 10, 11: 11}
-	mergedM, err := mergeValues([]any{m1, m2, m3})
-	assert.Nil(t, err)
+	t.Run("merge maps", func(t *testing.T) {
+		m1 := map[int]int{1: 1, 2: 2, 3: 3, 4: 4}
+		m2 := map[int]int{5: 5, 6: 6, 7: 7, 8: 8}
+		m3 := map[int]int{9: 9, 10: 10, 11: 11}
+		mergedM, err := mergeValues([]any{m1, m2, m3})
+		require.NoError(t, err)
 
-	m := mergedM.(map[int]int)
+		m := mergedM.(map[int]int)
 
-	// len(m) == len(m1) + len(m2) + len(m3)
-	assert.Equal(t, len(m), len(m1)+len(m2)+len(m3))
+		// len(m) == len(m1) + len(m2) + len(m3)
+		assert.Equal(t, len(m), len(m1)+len(m2)+len(m3))
 
-	_, err = mergeValues([]any{m1, m2, m3, map[int]int{1: 1}})
-	assert.NotNil(t, err)
+		_, err = mergeValues([]any{m1, m2, m3, map[int]int{1: 1}})
+		assert.Error(t, err)
 
-	_, err = mergeValues([]any{m1, m2, m3, map[int]string{1: "1"}})
-	assert.NotNil(t, err)
+		_, err = mergeValues([]any{m1, m2, m3, map[int]string{1: "1"}})
+		assert.Error(t, err)
+	})
 
-	// merge stream
-	ass := []any{
-		packStreamReader(schema.StreamReaderFromArray[map[int]bool]([]map[int]bool{{1: true}})),
-		packStreamReader(schema.StreamReaderFromArray[map[int]bool]([]map[int]bool{{2: true}})),
-		packStreamReader(schema.StreamReaderFromArray[map[int]bool]([]map[int]bool{{3: true}})),
-	}
-	isr, err := mergeValues(ass)
-	assert.Nil(t, err)
-	ret, ok := unpackStreamReader[map[int]bool](isr.(streamReader))
-	defer ret.Close()
-
-	// check if merge ret is StreamReader
-	assert.True(t, ok)
-
-	for i := 1; i <= 3; i++ {
-		num, err := ret.Recv()
-		assert.Nil(t, err)
-
-		if num[i] != true {
-			t.Fatalf("stream read num:%d is out of expect", i)
+	t.Run("merge stream", func(t *testing.T) {
+		ass := []any{
+			packStreamReader(schema.StreamReaderFromArray[map[int]bool]([]map[int]bool{{1: true}})),
+			packStreamReader(schema.StreamReaderFromArray[map[int]bool]([]map[int]bool{{2: true}})),
+			packStreamReader(schema.StreamReaderFromArray[map[int]bool]([]map[int]bool{{3: true}})),
 		}
-	}
-	_, err = ret.Recv()
-	if err != io.EOF {
-		t.Fatalf("stream reader isn't return EOF as expect: %v", err)
-	}
+		isr, err := mergeValues(ass)
+		require.NoError(t, err)
+		ret, ok := unpackStreamReader[map[int]bool](isr.(streamReader))
+		defer ret.Close()
+
+		// check if merge ret is StreamReader
+		require.True(t, ok)
+
+		for i := 1; i <= 3; i++ {
+			num, err := ret.Recv()
+			require.NoError(t, err)
+
+			assert.Truef(t, num[i], "stream read num:%d is out of expect", i)
+		}
+		_, err = ret.Recv()
+		require.ErrorIsf(t, err, io.EOF, "stream reader isn't return EOF as expect: %v", err)
+	})
+
+	t.Run("merge mergeables", func(t *testing.T) {
+		m1 := &pointerMergeable{A: 1, B: []string{"1"}}
+		m2 := &pointerMergeable{A: 2, B: []string{"2", "22"}}
+		m3 := &pointerMergeable{A: 3, B: []string{"3", "33", "333"}}
+		mergedM, err := mergeValues([]any{m1, m2, m3})
+		require.NoError(t, err)
+
+		m := mergedM.(*pointerMergeable)
+
+		assert.Equal(t, m, &pointerMergeable{
+			A: 6,
+			B: []string{"1", "2", "22", "3", "33", "333"},
+		})
+
+		_, err = mergeValues([]any{m1, m2, m3, intMergeable(1)})
+		assert.Error(t, err)
+	})
+
+	t.Run("merge stream", func(t *testing.T) {
+		ass := []any{
+			packStreamReader(schema.StreamReaderFromArray([]*pointerMergeable{
+				{A: 1, B: []string{"1"}},
+			})),
+			packStreamReader(schema.StreamReaderFromArray([]*pointerMergeable{
+				{A: 0, B: []string{"2"}},
+				{A: 2, B: []string{"22"}},
+			})),
+			packStreamReader(schema.StreamReaderFromArray([]*pointerMergeable{
+				{A: 0, B: nil},
+				{A: 0, B: []string{"33", "333"}},
+				{A: 3, B: []string{"3"}},
+			})),
+		}
+		isr, err := mergeValues(ass)
+		require.NoError(t, err)
+		ret, ok := unpackStreamReader[*pointerMergeable](isr.(streamReader))
+		defer ret.Close()
+
+		// check if merge ret is StreamReader
+		require.True(t, ok)
+
+		var mergedM *pointerMergeable
+		for i := 0; i < 6; i++ {
+			m, err := ret.Recv()
+			require.NoError(t, err)
+			mergedM = mergedM.Merge(m)
+		}
+
+		_, err = ret.Recv()
+		require.ErrorIsf(t, err, io.EOF, "stream reader isn't return EOF as expect: %v", err)
+
+		assert.Equal(t, mergedM, &pointerMergeable{
+			A: 6,
+			B: []string{"1", "2", "22", "3", "33", "333"},
+		})
+	})
 }
 
 type good interface {
