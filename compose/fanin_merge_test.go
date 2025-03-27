@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/cloudwego/eino/schema"
 )
@@ -14,46 +15,56 @@ func Test_mergeValues(t *testing.T) {
 		m1 := map[int]int{1: 1, 2: 2, 3: 3, 4: 4}
 		m2 := map[int]int{5: 5, 6: 6, 7: 7, 8: 8}
 		m3 := map[int]int{9: 9, 10: 10, 11: 11}
-		mergedM, err := mergeValues([]any{m1, m2, m3})
-		assert.Nil(t, err)
 
-		m := mergedM.(map[int]int)
+		t.Run("regular", func(t *testing.T) {
+			mergedM, err := mergeValues([]any{m1, m2, m3})
+			assert.NoError(t, err)
 
-		// len(m) == len(m1) + len(m2) + len(m3)
-		assert.Equal(t, len(m), len(m1)+len(m2)+len(m3))
+			m := mergedM.(map[int]int)
 
-		_, err = mergeValues([]any{m1, m2, m3, map[int]int{1: 1}})
-		assert.NotNil(t, err)
+			// len(m) == len(m1) + len(m2) + len(m3)
+			assert.Equal(t, len(m), len(m1)+len(m2)+len(m3))
+		})
 
-		_, err = mergeValues([]any{m1, m2, m3, map[int]string{1: "1"}})
-		assert.NotNil(t, err)
+		t.Run("duplicated key", func(t *testing.T) {
+			_, err := mergeValues([]any{m1, m2, m3, map[int]int{1: 1}})
+			assert.ErrorContains(t, err, "duplicated key")
+		})
+
+		t.Run("type mismatch", func(t *testing.T) {
+			_, err := mergeValues([]any{m1, m2, m3, map[int]string{1: "1"}})
+			assert.ErrorContains(t, err, "type mismatch")
+		})
 	})
 
 	t.Run("merge stream", func(t *testing.T) {
 		ass := []any{
-			packStreamReader(schema.StreamReaderFromArray[map[int]bool]([]map[int]bool{{1: true}})),
-			packStreamReader(schema.StreamReaderFromArray[map[int]bool]([]map[int]bool{{2: true}})),
-			packStreamReader(schema.StreamReaderFromArray[map[int]bool]([]map[int]bool{{3: true}})),
+			packStreamReader(schema.StreamReaderFromArray[map[int]string]([]map[int]string{{1: "1"}})),
+			packStreamReader(schema.StreamReaderFromArray[map[int]string]([]map[int]string{{2: "2"}})),
+			packStreamReader(schema.StreamReaderFromArray[map[int]string]([]map[int]string{{3: "3", 4: "4"}})),
 		}
 		isr, err := mergeValues(ass)
-		assert.Nil(t, err)
-		ret, ok := unpackStreamReader[map[int]bool](isr.(streamReader))
+		require.NoError(t, err)
+		ret, ok := unpackStreamReader[map[int]string](isr.(streamReader))
+		require.True(t, ok)
 		defer ret.Close()
 
-		// check if merge ret is StreamReader
-		assert.True(t, ok)
-
-		for i := 1; i <= 3; i++ {
-			num, err := ret.Recv()
-			assert.Nil(t, err)
-
-			if num[i] != true {
-				t.Fatalf("stream read num:%d is out of expect", i)
+		got := make(map[int]string)
+		for i := 0; i < 3; i++ {
+			m, err := ret.Recv()
+			require.NoError(t, err)
+			for k, v := range m {
+				got[k] = v
 			}
 		}
 		_, err = ret.Recv()
-		if err != io.EOF {
-			t.Fatalf("stream reader isn't return EOF as expect: %v", err)
-		}
+		require.ErrorIs(t, err, io.EOF)
+
+		assert.Equal(t, map[int]string{
+			1: "1",
+			2: "2",
+			3: "3",
+			4: "4",
+		}, got)
 	})
 }
