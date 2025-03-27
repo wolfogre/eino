@@ -34,9 +34,9 @@ func GetMergeFunc(typ reflect.Type) func([]any) (any, error) {
 		return func(vs []any) (any, error) {
 			rvs := reflect.MakeSlice(reflect.SliceOf(typ), 0, len(vs))
 			for _, v := range vs {
-				if reflect.TypeOf(v) != typ {
+				if t := reflect.TypeOf(v); t != typ {
 					return nil, fmt.Errorf(
-						"(fan-in merge) field type mismatch. expected: '%v', got: '%v'", typ, reflect.TypeOf(v))
+						"(fan-in merge) field type mismatch. expected: '%v', got: '%v'", typ, t)
 				}
 				rvs = reflect.Append(rvs, reflect.ValueOf(v))
 			}
@@ -62,9 +62,9 @@ func GetMergeFunc(typ reflect.Type) func([]any) (any, error) {
 func mergeMap(typ reflect.Type, vs []any) (any, error) {
 	merged := reflect.MakeMap(typ)
 	for _, v := range vs {
-		if reflect.TypeOf(v) != typ {
+		if t := reflect.TypeOf(v); t != typ {
 			return nil, fmt.Errorf(
-				"(fan-in merge map) field type mismatch. expected: '%v', got: '%v'", typ, reflect.TypeOf(v))
+				"(fan-in merge map) field type mismatch. expected: '%v', got: '%v'", typ, t)
 		}
 
 		iter := reflect.ValueOf(v).MapRange()
