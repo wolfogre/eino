@@ -41,9 +41,10 @@ func mergeValues(vs []any) (any, error) {
 	}
 
 	if s, ok := vs[0].(streamReader); ok {
-		if t := s.getChunkType(); t.Kind() != reflect.Map && internal.GetMergeFunc(t) == nil {
+		t := s.getChunkType()
+		if internal.GetMergeFunc(t) == nil {
 			return nil, fmt.Errorf("(mergeValues | stream type)"+
-				" unsupported chunk type: %v", s.getChunkType())
+				" unsupported chunk type: %v", t)
 		}
 
 		ss := make([]streamReader, len(vs)-1)
@@ -54,9 +55,9 @@ func mergeValues(vs []any) (any, error) {
 					"expect: %v, got: %v", t0, reflect.TypeOf(vs[i]))
 			}
 
-			if s_.getChunkType() != s.getChunkType() {
+			if st := s_.getChunkType(); st != t {
 				return nil, fmt.Errorf("(mergeStream) chunk type mismatch. "+
-					"expect: %v, got: %v", s.getChunkType(), s_.getChunkType())
+					"expect: %v, got: %v", t, st)
 			}
 
 			ss[i] = s_
