@@ -23,9 +23,7 @@ import (
 	"github.com/cloudwego/eino/internal/generic"
 )
 
-var (
-	mergeFuncs = map[reflect.Type]any{}
-)
+var mergeFuncs = map[reflect.Type]any{}
 
 func RegisterFanInMergeFunc[T any](fn func([]T) (T, error)) {
 	mergeFuncs[generic.TypeOf[T]()] = fn
