@@ -31,14 +31,14 @@ func RegisterFanInMergeFunc[T any](fn func([]T) (T, error)) {
 	mergeFuncs[generic.TypeOf[T]()] = fn
 }
 
-func GetMergeFunc(tpe reflect.Type) func([]any) (any, error) {
-	if fn, ok := mergeFuncs[tpe]; ok {
+func GetMergeFunc(typ reflect.Type) func([]any) (any, error) {
+	if fn, ok := mergeFuncs[typ]; ok {
 		return func(vs []any) (any, error) {
-			rvs := reflect.MakeSlice(reflect.SliceOf(tpe), 0, len(vs))
+			rvs := reflect.MakeSlice(reflect.SliceOf(typ), 0, len(vs))
 			for _, v := range vs {
-				if reflect.TypeOf(v) != tpe {
+				if reflect.TypeOf(v) != typ {
 					return nil, fmt.Errorf(
-						"(fan-in merge) field type mismatch. expected: '%v', got: '%v'", tpe, reflect.TypeOf(v))
+						"(fan-in merge) field type mismatch. expected: '%v', got: '%v'", typ, reflect.TypeOf(v))
 				}
 				rvs = reflect.Append(rvs, reflect.ValueOf(v))
 			}
@@ -52,5 +52,32 @@ func GetMergeFunc(tpe reflect.Type) func([]any) (any, error) {
 		}
 	}
 
+	if typ.Kind() == reflect.Map {
+		return func(vs []any) (any, error) {
+			return mergeMap(typ, vs)
+		}
+	}
+
 	return nil
+}
+
+func mergeMap(typ reflect.Type, vs []any) (any, error) {
+	merged := reflect.MakeMap(typ)
+	for _, v := range vs {
+		if reflect.TypeOf(v) != typ {
+			return nil, fmt.Errorf(
+				"(fan-in merge map) field type mismatch. expected: '%v', got: '%v'", typ, reflect.TypeOf(v))
+		}
+
+		iter := reflect.ValueOf(v).MapRange()
+		for iter.Next() {
+			key, val := iter.Key(), iter.Value()
+			if merged.MapIndex(key).IsValid() {
+				return nil, fmt.Errorf("(fan-in merge map) duplicated key ('%v') found", key.Interface())
+			}
+			merged.SetMapIndex(key, val)
+		}
+	}
+
+	return merged.Interface(), nil
 }
