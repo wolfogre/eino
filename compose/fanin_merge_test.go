@@ -1,7 +1,9 @@
 package compose
 
 import (
+	"fmt"
 	"io"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -67,4 +69,111 @@ func Test_mergeValues(t *testing.T) {
 			4: "4",
 		}, got)
 	})
+
+	type TestType struct {
+		A int
+		B []string
+	}
+
+	RegisterFanInMergeFunc(func(vs []*TestType) (*TestType, error) {
+		ret := &TestType{}
+		for _, v := range vs {
+			if v == nil {
+				continue
+			}
+			if ret.A < 0 {
+				return nil, fmt.Errorf("test error: %v", ret.A)
+			}
+			ret.A += v.A
+			ret.B = append(ret.B, v.B...)
+		}
+		sort.Strings(ret.B)
+		return ret, nil
+	})
+
+	t.Run("custom merge", func(t *testing.T) {
+		t.Run("regular", func(t *testing.T) {
+			vs := []any{
+				&TestType{A: 0, B: []string{}},
+				&TestType{A: 1, B: []string{"1"}},
+				&TestType{A: 2, B: []string{"2", "22"}},
+				&TestType{A: 3, B: []string{"3", "33", "333"}},
+			}
+			ret, err := mergeValues(vs)
+			require.NoError(t, err)
+			assert.Equal(t, &TestType{
+				A: 6,
+				B: []string{"1", "2", "22", "3", "33", "333"},
+			}, ret)
+		})
+
+		t.Run("custom error", func(t *testing.T) {
+			vs := []any{
+				&TestType{A: 0, B: []string{}},
+				&TestType{A: 1, B: []string{"1"}},
+				&TestType{A: -2, B: []string{"2", "22"}},
+				&TestType{A: 3, B: []string{"3", "33", "333"}},
+			}
+			_, err := mergeValues(vs)
+			require.ErrorContains(t, err, "test error")
+		})
+
+		t.Run("type mismatch", func(t *testing.T) {
+			vs := []any{
+				&TestType{A: 0, B: []string{}},
+				&TestType{A: 1, B: []string{"1"}},
+				&TestType{A: 2, B: []string{"2", "22"}},
+				"test3",
+			}
+			_, err := mergeValues(vs)
+			require.ErrorContains(t, err, "type mismatch")
+		})
+
+		t.Run("stream", func(t *testing.T) {
+			ass := []any{
+				packStreamReader(schema.StreamReaderFromArray([]*TestType{
+					{A: 0, B: []string{}},
+				})),
+				packStreamReader(schema.StreamReaderFromArray([]*TestType{
+					{A: 1, B: []string{"1"}},
+				})),
+				packStreamReader(schema.StreamReaderFromArray([]*TestType{
+					{A: 2, B: []string{"2", "22"}},
+				})),
+				packStreamReader(schema.StreamReaderFromArray([]*TestType{
+					{A: 3, B: []string{"3", "33", "333"}},
+				})),
+			}
+			isr, err := mergeValues(ass)
+			require.NoError(t, err)
+			ret, ok := unpackStreamReader[*TestType](isr.(streamReader))
+			require.True(t, ok)
+			defer ret.Close()
+
+			var vs []any
+			for i := 0; i < 4; i++ {
+				v, err := ret.Recv()
+				require.NoError(t, err)
+				vs = append(vs, v)
+			}
+
+			_, err = ret.Recv()
+			require.ErrorIs(t, err, io.EOF)
+
+			merged, err := mergeValues(vs)
+			require.NoError(t, err)
+
+			assert.Equal(t, &TestType{
+				A: 6,
+				B: []string{"1", "2", "22", "3", "33", "333"},
+			}, merged)
+		})
+	})
+
+	t.Run("unregistered type", func(t *testing.T) {
+		type Unregistered TestType
+		_, err := mergeValues([]any{&Unregistered{}})
+		assert.ErrorContains(t, err, "unsupported type")
+	})
+
 }
