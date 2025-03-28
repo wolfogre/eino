@@ -91,7 +91,7 @@ func Test_mergeValues(t *testing.T) {
 		B []string
 	}
 
-	RegisterFanInMergeFunc(func(vs []*TestType) (*TestType, error) {
+	RegisterValuesMergeFunc(func(vs []*TestType) (*TestType, error) {
 		ret := &TestType{}
 		for _, v := range vs {
 			if v == nil {

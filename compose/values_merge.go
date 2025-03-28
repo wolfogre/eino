@@ -23,12 +23,12 @@ import (
 	"github.com/cloudwego/eino/internal"
 )
 
-// RegisterFanInMergeFunc registers a function to merge outputs from multiple nodes when fan-in.
+// RegisterValuesMergeFunc registers a function to merge outputs from multiple nodes when fan-in.
 // It's used to define how to merge for a specific type.
 // For maps that can be merged naturally, you don't need to register a function unless you want to customize the merge logic.
 // Please note that it's completely different from RegisterStreamChunkConcatFunc which is used to concat stream chunks.
-func RegisterFanInMergeFunc[T any](fn func([]T) (T, error)) {
-	internal.RegisterFanInMergeFunc(fn)
+func RegisterValuesMergeFunc[T any](fn func([]T) (T, error)) {
+	internal.RegisterValuesMergeFunc(fn)
 }
 
 // the caller should ensure len(vs) > 1
