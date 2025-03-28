@@ -25,8 +25,7 @@ import (
 
 // RegisterValuesMergeFunc registers a function to merge outputs from multiple nodes when fan-in.
 // It's used to define how to merge for a specific type.
-// For maps that can be merged naturally, you don't need to register a function unless you want to customize the merge logic.
-// Please note that it's completely different from RegisterStreamChunkConcatFunc which is used to concat stream chunks.
+// For maps that already have a default merge function, you don't need to register a new one unless you want to customize the merge logic.
 func RegisterValuesMergeFunc[T any](fn func([]T) (T, error)) {
 	internal.RegisterValuesMergeFunc(fn)
 }
