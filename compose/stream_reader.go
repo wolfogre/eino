@@ -18,6 +18,7 @@ package compose
 
 import (
 	"fmt"
+	"io"
 	"reflect"
 
 	"github.com/cloudwego/eino/internal/generic"
@@ -91,31 +92,29 @@ func (srp streamReaderPacker[T]) concatAndMerge(isrs []streamReader, fn func([]a
 		srs[i] = sr
 	}
 
-	reader, writer := schema.Pipe[T](1)
-
-	go func() {
-		defer writer.Close()
-		var (
-			zero   T
-			values []any
-		)
+	sent := false
+	ret := schema.StreamReaderFromGenerator(func() (T, error) {
+		var zero T
+		if sent {
+			return zero, io.EOF
+		}
+		var values []any
 		for _, sr := range srs {
 			v, err := concatStreamReader(sr)
 			if err != nil {
-				writer.Send(zero, fmt.Errorf("concat stream reader: %w", err))
-				return
+				return zero, fmt.Errorf("concat stream reader: %w", err)
 			}
 			values = append(values, v)
 		}
 		merged, err := fn(values)
 		if err != nil {
-			writer.Send(zero, fmt.Errorf("merge values: %w", err))
-			return
+			return zero, fmt.Errorf("merge values: %w", err)
 		}
-		writer.Send(merged.(T), nil)
-	}()
+		sent = true
+		return merged.(T), nil
+	})
 
-	return packStreamReader(reader)
+	return packStreamReader(ret)
 }
 
 func (srp streamReaderPacker[T]) withKey(key string) streamReader {

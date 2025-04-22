@@ -141,6 +141,8 @@ type StreamReader[T any] struct {
 	srw *streamReaderWithConvert[T]
 
 	csr *childStreamReader[T]
+
+	fsr *generatorStreamReader[T]
 }
 
 // Recv receives a value from the stream.
@@ -165,6 +167,8 @@ func (sr *StreamReader[T]) Recv() (T, error) {
 		return sr.srw.recv()
 	case readerTypeChild:
 		return sr.csr.recv()
+	case readerTypeGenerator:
+		return sr.fsr.recv()
 	default:
 		panic("impossible") // nolint: byted_s_panic_detect
 	}
@@ -187,7 +191,7 @@ func (sr *StreamReader[T]) Close() {
 	switch sr.typ {
 	case readerTypeStream:
 		sr.st.closeRecv()
-	case readerTypeArray:
+	case readerTypeArray, readerTypeGenerator:
 
 	case readerTypeMultiStream:
 		sr.msr.close()
@@ -255,6 +259,7 @@ const (
 	readerTypeMultiStream
 	readerTypeWithConvert
 	readerTypeChild
+	readerTypeGenerator
 )
 
 type iStreamReader interface {
@@ -679,6 +684,61 @@ func (csr *childStreamReader[T]) close() {
 	csr.parent.close(csr.index)
 }
 
+// StreamReaderFromGenerator creates a StreamReader from a function.
+// It will call the function to get the next value only when recv() is called.
+// eg.
+//
+//	sr := schema.StreamReaderFromGenerator(func() (int, error) {
+//		v, ok := getNextValue()
+//		if !ok {
+//			return 0, io.EOF
+//		}
+//		return v, nil
+//	})
+func StreamReaderFromGenerator[T any](generator func() (T, error)) *StreamReader[T] {
+	return &StreamReader[T]{fsr: &generatorStreamReader[T]{generator: generator}, typ: readerTypeGenerator}
+}
+
+type generatorStreamReader[T any] struct {
+	generator func() (T, error)
+}
+
+func (gsr *generatorStreamReader[T]) recv() (T, error) {
+	return gsr.generator()
+}
+
+func (gsr *generatorStreamReader[T]) toStream() *stream[T] {
+	ret := newStream[T](5)
+
+	go func() {
+		defer func() {
+			panicErr := recover()
+			if panicErr != nil {
+				e := safe.NewPanicErr(panicErr, debug.Stack()) // nolint: byted_returned_err_should_do_check
+
+				var chunk T
+				_ = ret.send(chunk, e)
+			}
+
+			ret.closeSend()
+		}()
+
+		for {
+			out, err := gsr.recv()
+			if err == io.EOF {
+				break
+			}
+
+			closed := ret.send(out, err)
+			if closed {
+				break
+			}
+		}
+	}()
+
+	return ret
+}
+
 // MergeStreamReaders merge multiple StreamReader into one.
 // it's useful when you want to merge multiple streams into one.
 // eg.
@@ -717,6 +777,8 @@ func MergeStreamReaders[T any](srs []*StreamReader[T]) *StreamReader[T] {
 			ss = append(ss, sr.srw.toStream())
 		case readerTypeChild:
 			ss = append(ss, sr.csr.toStream())
+		case readerTypeGenerator:
+			ss = append(ss, sr.fsr.toStream())
 		default:
 			panic("impossible") // nolint: byted_s_panic_detect
 		}
