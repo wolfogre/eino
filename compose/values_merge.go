@@ -35,13 +35,13 @@ func mergeValues(vs []any) (any, error) {
 	v0 := reflect.ValueOf(vs[0])
 	t0 := v0.Type()
 
-	if fn := internal.GetMergeFunc(t0); fn != nil {
+	if fn, _ := internal.GetMergeFunc(t0); fn != nil {
 		return fn(vs)
 	}
 
 	if s, ok := vs[0].(streamReader); ok {
 		t := s.getChunkType()
-		if internal.GetMergeFunc(t) == nil {
+		if fn, _ := internal.GetMergeFunc(t); fn == nil {
 			return nil, fmt.Errorf("(mergeValues | stream type)"+
 				" unsupported chunk type: %v", t)
 		}
@@ -62,9 +62,11 @@ func mergeValues(vs []any) (any, error) {
 			ss[i] = s_
 		}
 
-		ms := s.merge(ss)
-
-		return ms, nil
+		fn, custom := internal.GetMergeFunc(t)
+		if !custom {
+			return s.merge(ss), nil
+		}
+		return s.concatAndMerge(ss, fn), nil
 	}
 
 	return nil, fmt.Errorf("(mergeValues) unsupported type: %v", t0)

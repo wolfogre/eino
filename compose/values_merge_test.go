@@ -246,7 +246,6 @@ func TestRegisterValuesMergeFunc(t *testing.T) {
 		t.Run("stream", func(t *testing.T) {
 			reader, err := runnable.Stream(t.Context(), "Hello, World!")
 			if err != nil {
-				// failed: concat stream reader fail: cannot concat multiple non-zero value of type compose.Output
 				require.NoError(t, err)
 			}
 			for {

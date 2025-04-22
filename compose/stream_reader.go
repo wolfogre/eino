@@ -17,6 +17,7 @@
 package compose
 
 import (
+	"fmt"
 	"reflect"
 
 	"github.com/cloudwego/eino/internal/generic"
@@ -28,6 +29,7 @@ type streamReader interface {
 	getType() reflect.Type
 	getChunkType() reflect.Type
 	merge([]streamReader) streamReader
+	concatAndMerge([]streamReader, func([]any) (any, error)) streamReader
 	withKey(string) streamReader
 	close()
 	toAnyStreamReader() *schema.StreamReader[any]
@@ -75,6 +77,45 @@ func (srp streamReaderPacker[T]) merge(isrs []streamReader) streamReader {
 	sr := schema.MergeStreamReaders(srs)
 
 	return packStreamReader(sr)
+}
+
+func (srp streamReaderPacker[T]) concatAndMerge(isrs []streamReader, fn func([]any) (any, error)) streamReader {
+	srs := make([]*schema.StreamReader[T], len(isrs)+1)
+	srs[0] = srp.sr
+	for i := 1; i < len(srs); i++ {
+		sr, ok := unpackStreamReader[T](isrs[i-1])
+		if !ok {
+			return nil
+		}
+
+		srs[i] = sr
+	}
+
+	reader, writer := schema.Pipe[T](1)
+
+	go func() {
+		defer writer.Close()
+		var (
+			zero   T
+			values []any
+		)
+		for _, sr := range srs {
+			v, err := concatStreamReader(sr)
+			if err != nil {
+				writer.Send(zero, fmt.Errorf("concat stream reader: %w", err))
+				return
+			}
+			values = append(values, v)
+		}
+		merged, err := fn(values)
+		if err != nil {
+			writer.Send(zero, fmt.Errorf("merge values: %w", err))
+			return
+		}
+		writer.Send(merged.(T), nil)
+	}()
+
+	return packStreamReader(reader)
 }
 
 func (srp streamReaderPacker[T]) withKey(key string) streamReader {
