@@ -98,6 +98,17 @@ func ConcatItems[T any](items []T) (T, error) {
 	// handle map kind
 	if typ.Kind() == reflect.Map {
 		cv, err = concatMaps(v)
+	} else if f := GetMergeFunc(typ); f != nil {
+		values := make([]any, 0, len(items))
+		for _, v := range items {
+			values = append(values, v)
+		}
+		fv, err := f(values)
+		if err != nil {
+			var t T
+			return t, err
+		}
+		return fv.(T), nil
 	} else {
 		cv, err = concatSliceValue(v)
 	}
