@@ -29,7 +29,9 @@ func RegisterValuesMergeFunc[T any](fn func([]T) (T, error)) {
 	mergeFuncs[generic.TypeOf[T]()] = fn
 }
 
-func GetMergeFunc(typ reflect.Type) func([]any) (any, error) {
+// GetMergeFunc returns a function to merge values of the same type,
+// and a boolean indicating whether the function is a custom merge function.
+func GetMergeFunc(typ reflect.Type) (func([]any) (any, error), bool) {
 	if fn, ok := mergeFuncs[typ]; ok {
 		return func(vs []any) (any, error) {
 			rvs := reflect.MakeSlice(reflect.SliceOf(typ), 0, len(vs))
@@ -47,16 +49,16 @@ func GetMergeFunc(typ reflect.Type) func([]any) (any, error) {
 				err = rets[1].Interface().(error)
 			}
 			return rets[0].Interface(), err
-		}
+		}, true
 	}
 
 	if typ.Kind() == reflect.Map {
 		return func(vs []any) (any, error) {
 			return mergeMap(typ, vs)
-		}
+		}, false
 	}
 
-	return nil
+	return nil, false
 }
 
 func mergeMap(typ reflect.Type, vs []any) (any, error) {
