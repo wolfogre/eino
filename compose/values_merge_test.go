@@ -17,9 +17,12 @@
 package compose
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -192,4 +195,70 @@ func Test_mergeValues(t *testing.T) {
 		assert.ErrorContains(t, err, "unsupported type")
 	})
 
+}
+
+func TestRegisterValuesMergeFunc(t *testing.T) {
+	t.Run("graph", func(t *testing.T) {
+		type Output []string
+		RegisterValuesMergeFunc(func(values []Output) (Output, error) {
+			t.Logf("mergeing %v", values)
+			ret := Output{}
+			for _, v := range values {
+				ret = append(ret, v...)
+			}
+			return ret, nil
+		})
+
+		graph := NewGraph[string, string]()
+
+		node1 := InvokableLambda(func(_ context.Context, input string) (Output, error) {
+			return Output{strings.ToLower(input)}, nil
+		})
+		node2 := InvokableLambda(func(_ context.Context, input string) (Output, error) {
+			return Output{strings.ToUpper(input)}, nil
+		})
+		node3 := StreamableLambda(func(_ context.Context, input Output) (*schema.StreamReader[string], error) {
+			return schema.StreamReaderFromArray(input), nil
+		})
+		_ = graph.AddLambdaNode("node1", node1)
+		_ = graph.AddLambdaNode("node2", node2)
+		_ = graph.AddLambdaNode("node3", node3)
+
+		_ = graph.AddEdge(START, "node1")
+		_ = graph.AddEdge(START, "node2")
+		_ = graph.AddEdge("node1", "node3")
+		_ = graph.AddEdge("node2", "node3")
+		_ = graph.AddEdge("node3", END)
+
+		runnable, err := graph.Compile(t.Context())
+		if err != nil {
+			panic(err)
+		}
+
+		t.Run("invoke", func(t *testing.T) {
+			output, err := runnable.Invoke(t.Context(), "Hello, World!")
+			if err != nil {
+				require.NoError(t, err)
+			}
+			t.Logf(output)
+		})
+
+		t.Run("stream", func(t *testing.T) {
+			reader, err := runnable.Stream(t.Context(), "Hello, World!")
+			if err != nil {
+				// failed: concat stream reader fail: cannot concat multiple non-zero value of type compose.Output
+				require.NoError(t, err)
+			}
+			for {
+				v, err := reader.Recv()
+				if err != nil {
+					if errors.Is(err, io.EOF) {
+						break
+					}
+					require.NoError(t, err)
+				}
+				t.Logf(v)
+			}
+		})
+	})
 }
